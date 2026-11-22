@@ -1,0 +1,22 @@
+[
+  {"id": 1, "arxiv_id": "2305.06983", "gold_sections": ["3.2.1"], "partial_sections": ["3", "Abstract"],
+   "question": "How does FLARE decide when to trigger retrieval during generation?"},
+  {"id": 2, "arxiv_id": "2305.06983", "gold_sections": ["3.2.2"], "partial_sections": ["3.2", "6.2"],
+   "question": "What query does FLARE use for retrieval, and how does it avoid retrieving with wrong information?"},
+  {"id": 3, "arxiv_id": "2305.06983", "gold_sections": ["2.2", "2.3"],
+   "question": "What is the difference between single-time retrieval and active retrieval augmented generation?"},
+  {"id": 4, "arxiv_id": "2305.06983", "gold_sections": ["6.1"],
+   "question": "On which task does FLARE improve the most over baselines, and why?"},
+  {"id": 5, "arxiv_id": "2305.06983", "gold_sections": ["6.2"],
+   "question": "Is retrieving with the upcoming sentence better than using the previous context?"},
+  {"id": 6, "arxiv_id": "2305.06983", "gold_sections": ["9"],
+   "question": "When does FLARE fail to bring improvements?"},
+  {"id": 7, "arxiv_id": "2412.15246", "gold_sections": ["3.2", "3.5"],
+   "question": "Why do the authors prefer exact nearest neighbor search over approximate search for RAG?"},
+  {"id": 8, "arxiv_id": "2412.15246", "gold_sections": ["5.1"],
+   "question": "What is the Intelligent Knowledge Store and how is it built?"},
+  {"id": 9, "arxiv_id": "2412.15246", "gold_sections": ["7.2", "10", "1", "Abstract"],
+   "question": "How much end-to-end speedup does IKS achieve?"},
+  {"id": 10, "arxiv_id": "2412.15246", "gold_sections": ["3.4", "3.5"],
+   "question": "Why are GPUs not a good choice for accelerating exact search?"}
+]
