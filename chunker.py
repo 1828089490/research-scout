@@ -158,4 +158,4 @@ if __name__ == "__main__":
     print("块数：", len(chunks))
     for c in chunks:
         pages = f"{c.page_start}" if c.page_start == c.page_end else f"{c.page_start}-{c.page_end}"
-        print(f"#{c.chunk_index:<3} p{pages:<6} {str(c.section)[:36]:<38} {c.token_count:>4} 词元  {c.content[:50]}")
+        print(f"#{c.chunk_index:<3} p{pages:<6} {str(c.section)[:36]:<38} {c.token_count:>4} 词元  {c.content[:50]}")

@@ -115,4 +115,4 @@ if __name__ == "__main__":
     papers = search_arxiv('ti:"retrieval augmented generation"', max_results=1)
     paper = papers[0]
     path = download_pdf(paper["arxiv_id"], paper["pdf_url"])
-    print(path, path.stat().st_size, "bytes")
+    print(path, path.stat().st_size, "bytes")

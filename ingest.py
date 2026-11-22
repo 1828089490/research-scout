@@ -69,4 +69,4 @@ if __name__ == "__main__":
         ).fetchall()
         for paper_id, arxiv_id in rows:
             count = ingest_paper(conn, paper_id)
-            print(f"{arxiv_id}：{count} 块")
+            print(f"{arxiv_id}：{count} 块")
