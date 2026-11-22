@@ -4,7 +4,7 @@ import sys
 
 import psycopg
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import AuthenticationError, OpenAI
 
 from arxiv_client import fetch_paper
 from embedder import embed_paper, mark_ready_if_done
@@ -43,5 +43,16 @@ if __name__ == "__main__":
     load_dotenv()
     client = OpenAI()
     with psycopg.connect(os.environ["DATABASE_URL"], autocommit=True) as conn:
+        failed = []
         for arxiv_id in sys.argv[1:]:
-            print(f"{arxiv_id}：{add_paper(conn, client, arxiv_id)}")
+            # 错误边界：一篇论文出错（比如网络超时），记下来，继续处理下一篇
+            try:
+                print(f"{arxiv_id}：{add_paper(conn, client, arxiv_id)}")
+            except AuthenticationError:
+                # key 不对时，后面每一篇都会失败，直接停下
+                raise
+            except Exception as e:
+                failed.append(arxiv_id)
+                print(f"{arxiv_id}：失败（{type(e).__name__}: {e}）")
+        if failed:
+            print(f"有 {len(failed)} 篇失败，重新运行即可继续：{' '.join(failed)}")

@@ -18,6 +18,10 @@ HTML_SOURCES = [
 ]
 MIN_INTERVAL_SECONDS = 3.0
 _last_request_at = 0.0
+# 临时性的失败才重试：超时、连接断开，以及这些状态码（429 请求太频繁，5xx 服务器临时出错）
+RETRY_STATUS_CODES = {429, 500, 502, 503, 504}
+MAX_ATTEMPTS = 3
+RETRY_BASE_SECONDS = 5.0
 
 
 def _wait_for_rate_limit() -> None:
@@ -27,6 +31,30 @@ def _wait_for_rate_limit() -> None:
     if elapsed < MIN_INTERVAL_SECONDS:
         time.sleep(MIN_INTERVAL_SECONDS - elapsed)
     _last_request_at = time.monotonic()
+
+def _get(url: str, params: dict | None = None, timeout: float = 30) -> httpx.Response:
+    # 所有对 arXiv 的请求都走这里：先遵守限流，遇到临时性的失败就等一会儿再试
+    # 等待时间按指数增长（5 秒、10 秒），给对方服务器恢复的时间（参照 Onyx 的 retry_builder）
+    # 只有 GET 这种重复执行也没有副作用的请求，才能放心地自动重试
+    for attempt in range(MAX_ATTEMPTS):
+        last_attempt = attempt == MAX_ATTEMPTS - 1
+        _wait_for_rate_limit()
+        try:
+            response = httpx.get(url, params=params, timeout=timeout, follow_redirects=True)
+        except httpx.TransportError as e:  # 超时、连接失败等，都是 TransportError 的子类
+            if last_attempt:
+                raise
+            reason = type(e).__name__
+        else:
+            # 不需要重试的结果（包括 404 这种“确实没有”）直接返回，由调用方判断
+            if response.status_code not in RETRY_STATUS_CODES or last_attempt:
+                return response
+            reason = f"状态码 {response.status_code}"
+        delay = RETRY_BASE_SECONDS * 2**attempt
+        print(f"  请求失败（{reason}），{delay:.0f} 秒后重试：{url}")
+        time.sleep(delay)
+    raise AssertionError("不会执行到这里")
+
 
 def parse_arxiv_id(entry_id: str) -> str:
     # "http://arxiv.org/abs/2005.11401v4"     -> "2005.11401"
@@ -64,12 +92,7 @@ def parse_entry(entry: ET.Element) -> dict:
 
 
 def search_arxiv(query: str, max_results: int = 5) -> list[dict]:
-    _wait_for_rate_limit()
-    response = httpx.get(
-        ARXIV_API_URL,
-        params={"search_query": query, "max_results": max_results},
-        timeout=30,
-    )
+    response = _get(ARXIV_API_URL, params={"search_query": query, "max_results": max_results})
     response.raise_for_status()
     root = ET.fromstring(response.content)
     return [parse_entry(e) for e in root.findall("atom:entry", NS)]
@@ -77,8 +100,7 @@ def search_arxiv(query: str, max_results: int = 5) -> list[dict]:
 
 def fetch_paper(arxiv_id: str) -> dict | None:
     # 按编号获取一篇论文的元数据；编号不存在或格式不对时返回 None
-    _wait_for_rate_limit()
-    response = httpx.get(ARXIV_API_URL, params={"id_list": arxiv_id}, timeout=30)
+    response = _get(ARXIV_API_URL, params={"id_list": arxiv_id})
     response.raise_for_status()
     root = ET.fromstring(response.content)
     for entry in root.findall("atom:entry", NS):
@@ -102,8 +124,7 @@ def download_pdf(arxiv_id: str, pdf_url: str) -> Path:
     if path.exists():
         return path
 
-    _wait_for_rate_limit()
-    response = httpx.get(pdf_url, timeout=60, follow_redirects=True)
+    response = _get(pdf_url, timeout=60)
     response.raise_for_status()
     if not response.content.startswith(b"%PDF"):
         raise ValueError(f"{arxiv_id} 下载到的不是 PDF")
@@ -123,9 +144,8 @@ def download_html(arxiv_id: str, version: str = "") -> tuple[Path, str] | None:
         return path, url_path.read_text(encoding="utf-8")
 
     for template in HTML_SOURCES:
-        _wait_for_rate_limit()
         url = template.format(arxiv_id=arxiv_id, version=version)
-        response = httpx.get(url, timeout=60, follow_redirects=True)
+        response = _get(url, timeout=60)
         # LaTeXML 转换出来的页面里一定有 "ltx_document" 这个标记
         if response.status_code == 200 and b"ltx_document" in response.content:
             HTML_DIR.mkdir(parents=True, exist_ok=True)
