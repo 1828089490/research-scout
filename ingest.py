@@ -3,7 +3,7 @@ import os
 import psycopg
 from dotenv import load_dotenv
 
-from arxiv_client import download_html, download_pdf
+from arxiv_client import download_html, download_pdf, version_suffix
 from chunker import Chunk, chunk_segments
 from html_parser import extract_html_segments
 from pdf_parser import Segment, extract_segments
@@ -29,7 +29,7 @@ def save_chunks(conn: psycopg.Connection, paper_id: int, chunks: list[Chunk]) ->
 
 def parse_paper(arxiv_id: str, pdf_url: str) -> tuple[list[Segment], str | None]:
     # 优先用 HTML（结构准确、图表分开）；没有 HTML 或解析不出内容，再退回到 PDF
-    html = download_html(arxiv_id)
+    html = download_html(arxiv_id, version_suffix(pdf_url))
     if html is not None:
         html_path, html_url = html
         segments = extract_html_segments(html_path)

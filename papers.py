@@ -22,7 +22,12 @@ UPSERT_PAPER_SQL = """
         updated_at = EXCLUDED.updated_at,
         doi = EXCLUDED.doi,
         journal_ref = EXCLUDED.journal_ref,
-        pdf_url = EXCLUDED.pdf_url
+        pdf_url = EXCLUDED.pdf_url,
+        -- arXiv 上有了新版本（更新时间变晚了），就改回 pending，触发重新解析和向量化
+        ingest_status = CASE
+            WHEN EXCLUDED.updated_at > papers.updated_at THEN 'pending'
+            ELSE papers.ingest_status
+        END
     RETURNING id
 """
 

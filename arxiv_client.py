@@ -13,8 +13,8 @@ NS = {
 PDF_DIR = Path("data/pdfs")
 HTML_DIR = Path("data/html")
 HTML_SOURCES = [
-    "https://arxiv.org/html/{arxiv_id}",  # 2023 年 12 月之后提交的论文
-    "https://ar5iv.labs.arxiv.org/html/{arxiv_id}",  # 更早的论文
+    "https://arxiv.org/html/{arxiv_id}{version}",  # arXiv 官方 HTML，可以指定版本
+    "https://ar5iv.labs.arxiv.org/html/{arxiv_id}",  # 历史论文的 HTML，每篇只有一个版本
 ]
 MIN_INTERVAL_SECONDS = 3.0
 _last_request_at = 0.0
@@ -74,9 +74,31 @@ def search_arxiv(query: str, max_results: int = 5) -> list[dict]:
     root = ET.fromstring(response.content)
     return [parse_entry(e) for e in root.findall("atom:entry", NS)]
 
+
+def fetch_paper(arxiv_id: str) -> dict | None:
+    # 按编号获取一篇论文的元数据；编号不存在或格式不对时返回 None
+    _wait_for_rate_limit()
+    response = httpx.get(ARXIV_API_URL, params={"id_list": arxiv_id}, timeout=30)
+    response.raise_for_status()
+    root = ET.fromstring(response.content)
+    for entry in root.findall("atom:entry", NS):
+        # 出错时 arXiv 也可能返回一个 entry，但它的 id 不是论文地址
+        if "/abs/" in (entry.findtext("atom:id", namespaces=NS) or ""):
+            return parse_entry(entry)
+    return None
+
+
+
+def version_suffix(pdf_url: str | None) -> str:
+    # "http://arxiv.org/pdf/2305.06983v2" -> "v2"；取不到时返回空字符串
+    match = re.search(r"(v\d+)$", pdf_url or "")
+    return match.group(1) if match else ""
+
+
 def download_pdf(arxiv_id: str, pdf_url: str) -> Path:
     # 旧编号里有 "/"（如 hep-th/9901001），不能直接当文件名
-    path = PDF_DIR / f"{arxiv_id.replace('/', '_')}.pdf"
+    # 缓存文件名带上版本号：论文更新后，新版本是一个新文件，不会被旧缓存挡住
+    path = PDF_DIR / f"{arxiv_id.replace('/', '_')}{version_suffix(pdf_url)}.pdf"
     if path.exists():
         return path
 
@@ -90,10 +112,11 @@ def download_pdf(arxiv_id: str, pdf_url: str) -> Path:
     path.write_bytes(response.content)
     return path
 
-def download_html(arxiv_id: str) -> tuple[Path, str] | None:
+def download_html(arxiv_id: str, version: str = "") -> tuple[Path, str] | None:
     # 依次尝试两个来源，都没有就返回 None，由调用方退回到 PDF
     # 返回 (本地文件, 网页地址)；网页地址和块的 anchor 拼起来，就是跳到原文位置的链接
-    name = arxiv_id.replace("/", "_")
+    # version 如 "v2"：缓存文件名和请求地址都带上它，和 PDF 的做法一致
+    name = arxiv_id.replace("/", "_") + version
     path = HTML_DIR / f"{name}.html"
     url_path = HTML_DIR / f"{name}.url"
     if path.exists() and url_path.exists():
@@ -101,7 +124,8 @@ def download_html(arxiv_id: str) -> tuple[Path, str] | None:
 
     for template in HTML_SOURCES:
         _wait_for_rate_limit()
-        response = httpx.get(template.format(arxiv_id=arxiv_id), timeout=60, follow_redirects=True)
+        url = template.format(arxiv_id=arxiv_id, version=version)
+        response = httpx.get(url, timeout=60, follow_redirects=True)
         # LaTeXML 转换出来的页面里一定有 "ltx_document" 这个标记
         if response.status_code == 200 and b"ltx_document" in response.content:
             HTML_DIR.mkdir(parents=True, exist_ok=True)
