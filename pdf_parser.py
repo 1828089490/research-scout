@@ -14,8 +14,10 @@ UNNUMBERED_HEADINGS = {"Abstract", "References", "Acknowledgments", "Acknowledge
 @dataclass
 class Segment:
     section: str | None
-    page: int
+    page: int | None  # HTML 没有页码，为 None
     text: str
+    kind: str = "text"  # text / figure / table
+    anchor: str | None = None  # HTML 里的位置 id，用来生成跳转链接
 
 
 def extract_pages(pdf_path: Path) -> list[str]:
@@ -91,4 +93,4 @@ if __name__ == "__main__":
     segments = extract_segments(Path("data/pdfs/2305.06983.pdf"))
     print("片段数：", len(segments))
     for s in segments:
-        print(f"p{s.page:<3} {str(s.section)[:40]:<42} {len(s.text):>5} 字符  {s.text[:60]}")
+        print(f"p{s.page:<3} {str(s.section)[:40]:<42} {len(s.text):>5} 字符  {s.text[:60]}")

@@ -11,6 +11,11 @@ NS = {
     "arxiv": "http://arxiv.org/schemas/atom",
 }
 PDF_DIR = Path("data/pdfs")
+HTML_DIR = Path("data/html")
+HTML_SOURCES = [
+    "https://arxiv.org/html/{arxiv_id}",  # 2023 年 12 月之后提交的论文
+    "https://ar5iv.labs.arxiv.org/html/{arxiv_id}",  # 更早的论文
+]
 MIN_INTERVAL_SECONDS = 3.0
 _last_request_at = 0.0
 
@@ -85,8 +90,29 @@ def download_pdf(arxiv_id: str, pdf_url: str) -> Path:
     path.write_bytes(response.content)
     return path
 
+def download_html(arxiv_id: str) -> tuple[Path, str] | None:
+    # 依次尝试两个来源，都没有就返回 None，由调用方退回到 PDF
+    # 返回 (本地文件, 网页地址)；网页地址和块的 anchor 拼起来，就是跳到原文位置的链接
+    name = arxiv_id.replace("/", "_")
+    path = HTML_DIR / f"{name}.html"
+    url_path = HTML_DIR / f"{name}.url"
+    if path.exists() and url_path.exists():
+        return path, url_path.read_text(encoding="utf-8")
+
+    for template in HTML_SOURCES:
+        _wait_for_rate_limit()
+        response = httpx.get(template.format(arxiv_id=arxiv_id), timeout=60, follow_redirects=True)
+        # LaTeXML 转换出来的页面里一定有 "ltx_document" 这个标记
+        if response.status_code == 200 and b"ltx_document" in response.content:
+            HTML_DIR.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(response.content)
+            # 记下实际的网页地址（跳转后可能带上了版本号，如 .../2305.06983v2）
+            url_path.write_text(str(response.url), encoding="utf-8")
+            return path, str(response.url)
+    return None
+
 if __name__ == "__main__":
     papers = search_arxiv('ti:"retrieval augmented generation"', max_results=1)
     paper = papers[0]
     path = download_pdf(paper["arxiv_id"], paper["pdf_url"])
-    print(path, path.stat().st_size, "bytes")
+    print(path, path.stat().st_size, "bytes")

@@ -15,19 +15,22 @@ ENCODING = tiktoken.get_encoding("cl100k_base")
 @dataclass
 class Sentence:
     section: str | None
-    page: int
+    page: int | None
     text: str
     tokens: int
+    anchor: str | None = None
 
 
 @dataclass
 class Chunk:
     chunk_index: int
     section: str | None
-    page_start: int
-    page_end: int
+    page_start: int | None
+    page_end: int | None
     content: str
     token_count: int
+    kind: str = "text"
+    anchor: str | None = None
 
 
 def count_tokens(text: str) -> int:
@@ -53,7 +56,7 @@ def to_sentences(segments: list[Segment]) -> list[Sentence]:
             tokens = count_tokens(text)
             pieces = [text] if tokens <= MAX_TOKENS else split_by_tokens(text)
             for piece in pieces:
-                sentences.append(Sentence(segment.section, segment.page, piece, count_tokens(piece)))
+                sentences.append(Sentence(segment.section, segment.page, piece, count_tokens(piece), segment.anchor))
     return sentences
 
 
@@ -66,7 +69,38 @@ def build_chunk(chunk_index: int, sentences: list[Sentence]) -> Chunk:
         page_end=sentences[-1].page,
         content=content,
         token_count=count_tokens(content),
+        anchor=sentences[0].anchor,
     )
+
+
+def block_chunks(start_index: int, segment: Segment) -> list[Chunk]:
+    # 图和表各自单独成块；太长的表按行拆开，每一部分都带上第一行的表格标题
+    lines = []
+    for line in segment.text.split("\n"):
+        # 单独一行就超过上限（比如没有换行的提示词示例），只能按词元数硬切
+        lines.extend([line] if count_tokens(line) <= MAX_TOKENS else split_by_tokens(line))
+    header = lines[0] if segment.kind == "table" else None  # 表格的第一行是标题
+    parts = []
+    current = []
+    for line in lines:
+        if current and count_tokens("\n".join(current + [line])) > MAX_TOKENS:
+            parts.append(current)
+            current = [header] if header else []
+        current.append(line)
+    parts.append(current)
+    return [
+        Chunk(
+            chunk_index=start_index + i,
+            section=segment.section,
+            page_start=segment.page,
+            page_end=segment.page,
+            content="\n".join(part),
+            token_count=count_tokens("\n".join(part)),
+            kind=segment.kind,
+            anchor=segment.anchor,
+        )
+        for i, part in enumerate(parts)
+    ]
 
 
 def group_by_section(sentences: list[Sentence]) -> list[list[Sentence]]:
@@ -107,9 +141,15 @@ def pack_section(sentences: list[Sentence]) -> list[list[Sentence]]:
 
 def chunk_segments(segments: list[Segment]) -> list[Chunk]:
     chunks = []
-    for group in group_by_section(to_sentences(segments)):
+    # 正文：按章节分组、均匀切分
+    text_segments = [s for s in segments if s.kind == "text"]
+    for group in group_by_section(to_sentences(text_segments)):
         for pack in pack_section(group):
             chunks.append(build_chunk(len(chunks), pack))
+    # 图和表：不和正文合并，排在正文后面，各自成块
+    for segment in segments:
+        if segment.kind != "text":
+            chunks.extend(block_chunks(len(chunks), segment))
     return chunks
 
 
@@ -118,4 +158,4 @@ if __name__ == "__main__":
     print("块数：", len(chunks))
     for c in chunks:
         pages = f"{c.page_start}" if c.page_start == c.page_end else f"{c.page_start}-{c.page_end}"
-        print(f"#{c.chunk_index:<3} p{pages:<6} {str(c.section)[:36]:<38} {c.token_count:>4} 词元  {c.content[:50]}")
+        print(f"#{c.chunk_index:<3} p{pages:<6} {str(c.section)[:36]:<38} {c.token_count:>4} 词元  {c.content[:50]}")

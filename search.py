@@ -18,11 +18,13 @@ class SearchResult:
     arxiv_id: str
     title: str
     section: str | None
-    page_start: int
-    page_end: int
+    page_start: int | None
+    page_end: int | None
     chunk_index: int
     content: str
     distance: float
+    kind: str
+    link: str | None  # 跳到原文位置的链接；用 PDF 解析的论文没有
 
 
 def search_library(
@@ -49,7 +51,9 @@ def search_library(
     sql = f"""
         SELECT papers.arxiv_id, papers.title, chunks.section,
                chunks.page_start, chunks.page_end, chunks.chunk_index, chunks.content,
-               chunks.embedding <=> %(query_vector)s::vector AS distance
+               chunks.embedding <=> %(query_vector)s::vector AS distance,
+               chunks.kind,
+               papers.html_url || '#' || chunks.anchor AS link
         FROM chunks
         JOIN papers ON papers.id = chunks.paper_id
         WHERE {" AND ".join(conditions)}
@@ -63,8 +67,8 @@ def search_library(
 def print_results(title: str, results: list[SearchResult]) -> None:
     print(f"\n===== {title} =====")
     for r in results:
-        pages = f"{r.page_start}" if r.page_start == r.page_end else f"{r.page_start}-{r.page_end}"
-        print(f"{r.distance:.3f}  {r.arxiv_id}  p{pages:<6} {str(r.section)[:35]:<37} {r.content[:50]}")
+        print(f"{r.distance:.3f}  {r.arxiv_id}  {r.kind:<6} {str(r.section)[:35]:<37} {r.content[:50]}")
+        print(f"       {r.link}")
 
 
 if __name__ == "__main__":
@@ -77,4 +81,4 @@ if __name__ == "__main__":
         print_results(
             "只搜 2412.15246",
             search_library(conn, client, question, arxiv_ids=["2412.15246"]),
-        )
+        )
