@@ -146,8 +146,9 @@ def download_html(arxiv_id: str, version: str = "") -> tuple[Path, str] | None:
     for template in HTML_SOURCES:
         url = template.format(arxiv_id=arxiv_id, version=version)
         response = _get(url, timeout=60)
-        # LaTeXML 转换出来的页面里一定有 "ltx_document" 这个标记
-        if response.status_code == 200 and b"ltx_document" in response.content:
+        # 要有正文段落（ltx_para）才算拿到了论文：转换失败的提示页也有外层的 ltx_document 标记，
+        # 但没有正文（实测 ar5iv 上的 hep-th/9711200 就是这样，页面只有 6 KB）
+        if response.status_code == 200 and b"ltx_para" in response.content:
             HTML_DIR.mkdir(parents=True, exist_ok=True)
             path.write_bytes(response.content)
             # 记下实际的网页地址（跳转后可能带上了版本号，如 .../2305.06983v2）

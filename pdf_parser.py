@@ -1,12 +1,15 @@
 import re
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 
 from pypdf import PdfReader
 
 # 有编号的标题："1 Introduction"、"2.1 Notations and Definitions"、附录 "A FLARE Implementation Details"
+# 数字编号后面允许带一个点："1. General idea"、"3.1. M 5 brane"（老论文常见，如 hep-th/9711200）
+# 字母编号后面不允许带点，否则参考文献里的作者缩写（如 "A. Strominger"）会被当成标题
 # 编号最多两位数，避免把参考文献里的年份（如 "2019 Conference ..."）当成标题
-HEADING_RE = re.compile(r"^(\d{1,2}(\.\d{1,2})*|[A-Z](\.\d{1,2})*)\s+[A-Z][^.]{2,80}$")
+HEADING_RE = re.compile(r"^(\d{1,2}(\.\d{1,2})*\.?|[A-Z](\.\d{1,2})*)\s+[A-Z][^.]{2,80}$")
 # 没有编号、但也是章节的标题
 UNNUMBERED_HEADINGS = {"Abstract", "References", "Acknowledgments", "Acknowledgements", "Limitations"}
 
@@ -22,8 +25,14 @@ class Segment:
 
 def extract_pages(pdf_path: Path) -> list[str]:
     # 返回每一页的文字；列表下标 0 对应第 1 页
+    # NFKC 规范化：把排版用的连字（如 "ﬁ" 这一个字符）拆回普通字母 "fi"，否则 "ﬁeld" 和 "field" 对不上
     reader = PdfReader(pdf_path)
-    return [page.extract_text() or "" for page in reader.pages]
+    return [unicodedata.normalize("NFKC", page.extract_text() or "") for page in reader.pages]
+
+
+def normalize_heading(line: str) -> str:
+    # "3.1. M 5 brane" -> "3.1 M 5 brane"：统一成编号后面直接跟空格，和 HTML 解析的章节名格式一致
+    return re.sub(r"^(\d{1,2}(?:\.\d{1,2})*)\.(?=\s)", r"\1", line)
 
 
 def heading_number(line: str) -> int | None:
@@ -77,7 +86,7 @@ def extract_segments(pdf_path: Path) -> list[Segment]:
                 if lines:
                     segments.append(Segment(section, page_number, join_lines(lines)))
                     lines = []
-                section = line
+                section = normalize_heading(line)
                 number = heading_number(line)
                 if number is not None:
                     last_number = number
